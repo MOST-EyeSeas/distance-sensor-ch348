@@ -1,0 +1,49 @@
+// For format details, see https://aka.ms/devcontainer.json. For config options, see the
+// README at: https://github.com/devcontainers/templates/tree/main/src/docker-existing-dockerfile
+{
+	"name": "Existing Dockerfile",
+	"build": {
+		// Sets the run context to one level up instead of the .devcontainer folder.
+		"context": "..",
+		// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
+		"dockerfile": "../Dockerfile"
+	},
+
+	"runArgs": [
+		"--env=DISPLAY=${env:DISPLAY}",
+		"--env=QT_X11_NO_MITSHM=1",
+		"--volume=/tmp/.X11-unix:/tmp/.X11-unix:rw",
+		"--env=XAUTHORITY=${env:XAUTH}",
+		"--volume=${env:XAUTH}:${env:XAUTH}",
+		"--net=host",
+		"--privileged",
+		"--volume=/dev:/dev",
+		"--volume=/sys:/sys",
+		"--gpus", "all",
+		// Mount host's kernel headers and modules
+		// This is necessary for building and loading kernel modules inside the container
+		"--volume=/usr/src:/usr/src", 
+		"--volume=/lib/modules:/lib/modules",
+		// Add this if you need to load modules
+		"--cap-add=SYS_MODULE"
+	],
+
+	// Features to add to the dev container. More info: https://containers.dev/features.
+	// "features": {},
+
+	// Use 'forwardPorts' to make a list of ports inside the container available locally.
+	// "forwardPorts": [],
+
+	// Uncomment the next line to run commands after the container is created.
+	// "postCreateCommand": "cat /etc/os-release",
+	// "postCreateCommand": "./entrypoint.sh",
+	// "postCreateCommand": "sudo chmod +x /entrypoint.sh && sudo /entrypoint.sh",
+
+
+
+	// Configure tool-specific properties.
+	// "customizations": {},
+
+	// Uncomment to connect as an existing user other than the container default. More info: https://aka.ms/dev-containers-non-root.
+	// "remoteUser": "devcontainer"
+}

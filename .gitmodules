@@ -1,0 +1,3 @@
+[submodule "ch9344ser_linux"]
+	path = ch9344ser_linux
+	url = https://github.com/MOST-EyeSeas/ch9344ser_linux.git
