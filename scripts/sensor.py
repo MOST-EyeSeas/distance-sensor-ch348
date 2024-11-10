@@ -11,6 +11,7 @@ class DistanceSensor:
         self.protocol = None
         self.buffer = bytearray()
         self.latest_distance = None
+        self.counter = 0
 
     async def connect(self):
         self.transport, self.protocol = await serial_asyncio.create_serial_connection(
@@ -43,7 +44,8 @@ class DistanceSensor:
                 checksum = sum(packet[:3]) & 0xFF
                 if packet[3] == checksum:
                     self.latest_distance = (packet[1] << 8) | packet[2]
-                    print(f"Sensor {self.port}: Distance = {self.latest_distance} mm")
+                    self.counter += 1
+                    print(f"Sensor {self.port}: Distance = {self.latest_distance} mm", self.counter)
                 self.buffer = self.buffer[4:]
             else:
                 self.buffer = self.buffer[1:]
