@@ -1,0 +1,1 @@
+docker run --rm -it --platform linux/arm/v7 -v  $(pwd):/workspaces my-armv7-app /bin/bash
