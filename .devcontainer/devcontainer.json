@@ -19,7 +19,7 @@
 		"--privileged",
 		"--volume=/dev:/dev",
 		"--volume=/sys:/sys",
-		"--gpus", "all",
+		// "--gpus", "all",
 		// Mount host's kernel headers and modules
 		// This is necessary for building and loading kernel modules inside the container
 		"--volume=/usr/src:/usr/src", 

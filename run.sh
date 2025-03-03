@@ -1,1 +1,1 @@
-docker run --rm -it --platform linux/arm/v7 -v  $(pwd):/workspaces my-armv7-app /bin/bash
+docker run --rm -it -v  $(pwd):/workspaces --net=host --privileged --volume=/dev:/dev --volume=/lib/modules:/lib/modules --volume=/sys:/sys distance-sensor /bin/bash

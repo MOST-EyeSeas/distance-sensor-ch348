@@ -18,8 +18,8 @@ RUN apt-get install -y sudo
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-WORKDIR /workspace
+WORKDIR /workspaces
 
-RUN echo "source /entrypoint.sh" >> ~/.bashrc
+# RUN echo "source /entrypoint.sh" >> ~/.bashrc
 
-ENTRYPOINT ["/entrypoint.sh"]
+# ENTRYPOINT ["/entrypoint.sh"]
