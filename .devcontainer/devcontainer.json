@@ -27,6 +27,13 @@
 		// Add this if you need to load modules
 		"--cap-add=SYS_MODULE"
 	],
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"ms-python.python"
+			]
+		}
+	},
 
 	// Features to add to the dev container. More info: https://containers.dev/features.
 	// "features": {},
