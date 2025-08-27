@@ -15,16 +15,16 @@ async def main():
     # Create sensor instances with descriptive names
     all_sensors = []
     
-    sensor1 = DistanceSensor('/dev/ttyCH9344USB7', name="Front")
+    sensor1 = DistanceSensor('/dev/ttyCH9344USB7', name="Front Right")
     all_sensors.append(sensor1)
 
-    sensor2 = DistanceSensor('/dev/ttyCH9344USB6', name="Right")
+    sensor2 = DistanceSensor('/dev/ttyCH9344USB6', name="Front Left")
     all_sensors.append(sensor2)
 
-    sensor3 = DistanceSensor('/dev/ttyCH9344USB5', name="Left")
+    sensor3 = DistanceSensor('/dev/ttyCH9344USB5', name="Diag Left")
     all_sensors.append(sensor3)
     
-    sensor4 = DistanceSensor('/dev/ttyCH9344USB4', name="Rear")
+    sensor4 = DistanceSensor('/dev/ttyCH9344USB4', name="Bottom")
     all_sensors.append(sensor4)
 
     # Connect to sensors
