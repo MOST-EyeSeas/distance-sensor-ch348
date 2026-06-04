@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SESSION_NAME="distance_udp"
+CONTAINER_NAME="distance_udp"
 DEFAULT_VEHICLE="pi@192.168.2.2"
 DEFAULT_PASSWORD="raspberry"
 DEFAULT_REPO="/home/pi/proj/distance-sensor-ch348"
 DEFAULT_PORT="5005"
-PIDFILE="/tmp/${SESSION_NAME}.pid"
-LOGFILE="/tmp/${SESSION_NAME}.log"
 
 usage() {
     cat <<USAGE
@@ -15,12 +13,17 @@ Usage:
   $0 --host UDP_HOST [--port UDP_PORT] --restart [main_udp args]
   $0 --stop
   $0 --status
+  $0 --logs
+  $0 --clean
 
 Actions:
-  --start                 Stop any existing sender, then start a new sender.
-  --restart              Stop any existing sender, then start a new sender.
-  --stop                 Stop the remote sender.
-  --status               Show remote sender status.
+  --start                 Remove old ${CONTAINER_NAME}, then start a new detached container.
+  --restart              Remove old ${CONTAINER_NAME}, then start a new detached container.
+  --stop                 Gracefully stop ${CONTAINER_NAME}; keep it for log inspection.
+  --status               Show docker status for ${CONTAINER_NAME}.
+  --logs                 Show the last 100 docker log lines for ${CONTAINER_NAME}.
+  --follow-logs          Follow docker logs for ${CONTAINER_NAME}.
+  --clean                Force-remove ${CONTAINER_NAME}.
 
 Options:
   --vehicle USER@HOST     SSH target for the vehicle. Default: ${DEFAULT_VEHICLE}
@@ -33,12 +36,14 @@ Options:
   --sensor-period SEC     Forwarded to main_udp.py for simultaneous mode.
   --read-timeout SEC      Forwarded to main_udp.py. Use 0 for blocking reads.
   --print-local           Forwarded to main_udp.py.
-                          Avoid this for long background runs; every packet goes to ${LOGFILE}.
+                          Avoid this for long background runs; every packet goes to docker logs.
   --pull                  Run git pull --ff-only on the vehicle before start/restart.
   --                      Pass remaining arguments directly to main_udp.py.
 
 Examples:
   $0 --host 192.168.2.1 --port 5005 --restart --mode sequential --poll-interval 0.1 --read-timeout 0.05
+  $0 --logs
+  $0 --clean
   $0 --stop
   $0 --status
 USAGE
@@ -112,7 +117,7 @@ while [[ $# -gt 0 ]]; do
             PULL=1
             shift
             ;;
-        --start|--restart|--stop|--status)
+        --start|--restart|--stop|--status|--logs|--follow-logs|--clean)
             if [[ -n "${ACTION}" ]]; then
                 echo "Only one action may be specified." >&2
                 exit 2
@@ -145,16 +150,14 @@ if [[ "${ACTION}" == "start" || "${ACTION}" == "restart" ]]; then
 fi
 
 if [[ "${PRINT_LOCAL}" == "1" && ( "${ACTION}" == "start" || "${ACTION}" == "restart" ) ]]; then
-    echo "Warning: --print-local writes every UDP packet to ${LOGFILE} during background deploys." >&2
+    echo "Warning: --print-local writes every UDP packet to docker logs for ${CONTAINER_NAME}." >&2
 fi
 
-REMOTE_RUN_ARGS=("${HOST}" "${PORT}" "${RUN_ARGS[@]}")
-RUN_CMD=$(quote_words "./run_udp.sh" "${REMOTE_RUN_ARGS[@]}")
+REMOTE_MAIN_ARGS=("--host" "${HOST}" "--port" "${PORT}" "${RUN_ARGS[@]}")
+PYTHON_CMD=$(quote_words "python3" "/workspaces/scripts/main_udp.py" "${REMOTE_MAIN_ARGS[@]}")
 REPO_Q=$(printf "%q" "${REPO}")
-SESSION_Q=$(printf "%q" "${SESSION_NAME}")
-PIDFILE_Q=$(printf "%q" "${PIDFILE}")
-LOGFILE_Q=$(printf "%q" "${LOGFILE}")
-RUN_CMD_Q=$(printf "%q" "${RUN_CMD}")
+CONTAINER_Q=$(printf "%q" "${CONTAINER_NAME}")
+PYTHON_CMD_Q=$(printf "%q" "${PYTHON_CMD}")
 ACTION_Q=$(printf "%q" "${ACTION}")
 PULL_Q=$(printf "%q" "${PULL}")
 
@@ -167,47 +170,20 @@ elif [[ -n "${PASSWORD}" ]]; then
 fi
 
 "${SSH_CMD[@]}" "${VEHICLE}" \
-    "REPO=${REPO_Q} SESSION=${SESSION_Q} PIDFILE=${PIDFILE_Q} LOGFILE=${LOGFILE_Q} RUN_CMD=${RUN_CMD_Q} ACTION=${ACTION_Q} PULL=${PULL_Q} bash -s" <<'REMOTE'
+    "REPO=${REPO_Q} CONTAINER=${CONTAINER_Q} PYTHON_CMD=${PYTHON_CMD_Q} ACTION=${ACTION_Q} PULL=${PULL_Q} bash -s" <<'REMOTE'
 set -euo pipefail
 
-stop_sender() {
-    if command -v tmux >/dev/null 2>&1 && tmux has-session -t "${SESSION}" 2>/dev/null; then
-        tmux kill-session -t "${SESSION}"
-        echo "Stopped tmux session ${SESSION}."
-    fi
-
-    if [[ -f "${PIDFILE}" ]]; then
-        pid="$(cat "${PIDFILE}")"
-        if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-            kill "${pid}" 2>/dev/null || true
-            sleep 1
-            kill -0 "${pid}" 2>/dev/null && kill -9 "${pid}" 2>/dev/null || true
-            echo "Stopped nohup process ${pid}."
-        fi
-        rm -f "${PIDFILE}"
-    fi
+container_exists() {
+    docker container inspect "${CONTAINER}" >/dev/null 2>&1
 }
 
 status_sender() {
-    if command -v tmux >/dev/null 2>&1 && tmux has-session -t "${SESSION}" 2>/dev/null; then
-        echo "running: tmux session ${SESSION}"
-        tmux list-sessions | grep "^${SESSION}:"
-        return 0
+    docker ps -a --filter "name=^/${CONTAINER}$"
+    if container_exists; then
+        docker inspect -f 'state={{.State.Status}} exit_code={{.State.ExitCode}} started={{.State.StartedAt}} finished={{.State.FinishedAt}}' "${CONTAINER}"
+    else
+        echo "${CONTAINER} not running: container does not exist."
     fi
-
-    if [[ -f "${PIDFILE}" ]]; then
-        pid="$(cat "${PIDFILE}")"
-        if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-            echo "running: nohup pid ${pid}"
-            echo "log: ${LOGFILE}"
-            return 0
-        fi
-        echo "stale pidfile: ${PIDFILE}"
-        return 1
-    fi
-
-    echo "not running"
-    return 1
 }
 
 start_sender() {
@@ -217,14 +193,46 @@ start_sender() {
         git pull --ff-only
     fi
 
-    if command -v tmux >/dev/null 2>&1; then
-        tmux new-session -d -s "${SESSION}" "cd \"${REPO}\" && exec ${RUN_CMD}"
-        echo "Started tmux session ${SESSION}: ${RUN_CMD}"
+    docker rm -f "${CONTAINER}" 2>/dev/null || true
+    docker run -d \
+        --name "${CONTAINER}" \
+        -v "${REPO}:/workspaces" \
+        --net=host \
+        --privileged \
+        --volume=/dev:/dev \
+        --volume=/lib/modules:/lib/modules \
+        --volume=/sys:/sys \
+        distance-sensor \
+        sh -c "exec ${PYTHON_CMD}"
+    echo "Started docker container ${CONTAINER}: ${PYTHON_CMD}"
+}
+
+stop_sender() {
+    if container_exists; then
+        docker stop "${CONTAINER}"
+        echo "Stopped docker container ${CONTAINER}. Logs remain available until --clean."
     else
-        nohup bash -lc "cd \"${REPO}\" && exec ${RUN_CMD}" > "${LOGFILE}" 2>&1 &
-        echo "$!" > "${PIDFILE}"
-        echo "Started nohup pid $(cat "${PIDFILE}"): ${RUN_CMD}"
-        echo "log: ${LOGFILE}"
+        echo "${CONTAINER} not running: container does not exist."
+    fi
+}
+
+clean_sender() {
+    docker rm -f "${CONTAINER}" 2>/dev/null && echo "Removed docker container ${CONTAINER}." || echo "${CONTAINER} not running: container does not exist."
+}
+
+show_logs() {
+    if container_exists; then
+        docker logs --tail 100 "${CONTAINER}"
+    else
+        echo "${CONTAINER} not running: container does not exist."
+    fi
+}
+
+follow_logs() {
+    if container_exists; then
+        docker logs --tail 100 -f "${CONTAINER}"
+    else
+        echo "${CONTAINER} not running: container does not exist."
     fi
 }
 
@@ -235,8 +243,16 @@ case "${ACTION}" in
     status)
         status_sender
         ;;
+    logs)
+        show_logs
+        ;;
+    follow-logs)
+        follow_logs
+        ;;
+    clean)
+        clean_sender
+        ;;
     start|restart)
-        stop_sender
         start_sender
         status_sender || true
         ;;
