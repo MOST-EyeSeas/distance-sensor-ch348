@@ -2,6 +2,8 @@
 set -euo pipefail
 
 SESSION_NAME="distance_udp"
+DEFAULT_VEHICLE="pi@192.168.2.2"
+DEFAULT_PASSWORD="raspberry"
 DEFAULT_REPO="/home/pi/proj/distance-sensor-ch348"
 DEFAULT_PORT="5005"
 PIDFILE="/tmp/${SESSION_NAME}.pid"
@@ -10,9 +12,9 @@ LOGFILE="/tmp/${SESSION_NAME}.log"
 usage() {
     cat <<USAGE
 Usage:
-  $0 --vehicle USER@HOST --host UDP_HOST [--port UDP_PORT] --restart [main_udp args]
-  $0 --vehicle USER@HOST --stop
-  $0 --vehicle USER@HOST --status
+  $0 --host UDP_HOST [--port UDP_PORT] --restart [main_udp args]
+  $0 --stop
+  $0 --status
 
 Actions:
   --start                 Stop any existing sender, then start a new sender.
@@ -21,7 +23,8 @@ Actions:
   --status               Show remote sender status.
 
 Options:
-  --vehicle USER@HOST     SSH target for the vehicle.
+  --vehicle USER@HOST     SSH target for the vehicle. Default: ${DEFAULT_VEHICLE}
+  --password PASSWORD     Password for sshpass, if available. Default: ${DEFAULT_PASSWORD}
   --repo PATH             Vehicle repository path. Default: ${DEFAULT_REPO}
   --host HOST             UDP destination host for run_udp.sh.
   --port PORT             UDP destination port. Default: ${DEFAULT_PORT}
@@ -30,13 +33,14 @@ Options:
   --sensor-period SEC     Forwarded to main_udp.py for simultaneous mode.
   --read-timeout SEC      Forwarded to main_udp.py. Use 0 for blocking reads.
   --print-local           Forwarded to main_udp.py.
+                          Avoid this for long background runs; every packet goes to ${LOGFILE}.
   --pull                  Run git pull --ff-only on the vehicle before start/restart.
   --                      Pass remaining arguments directly to main_udp.py.
 
 Examples:
-  $0 --vehicle pi@192.168.2.2 --host 192.168.2.1 --port 5005 --restart --mode sequential --poll-interval 0.1 --read-timeout 0.05 --print-local
-  $0 --vehicle pi@192.168.2.2 --stop
-  $0 --vehicle pi@192.168.2.2 --status
+  $0 --host 192.168.2.1 --port 5005 --restart --mode sequential --poll-interval 0.1 --read-timeout 0.05
+  $0 --stop
+  $0 --status
 USAGE
 }
 
@@ -53,12 +57,14 @@ quote_words() {
     printf "%q " "$@"
 }
 
-VEHICLE=""
+VEHICLE="${DEFAULT_VEHICLE}"
+PASSWORD="${DEFAULT_PASSWORD}"
 REPO="${DEFAULT_REPO}"
 HOST=""
 PORT="${DEFAULT_PORT}"
 ACTION=""
 PULL=0
+PRINT_LOCAL=0
 RUN_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -70,6 +76,11 @@ while [[ $# -gt 0 ]]; do
         --vehicle)
             require_value "$1" "${2:-}"
             VEHICLE="$2"
+            shift 2
+            ;;
+        --password)
+            require_value "$1" "${2:-}"
+            PASSWORD="$2"
             shift 2
             ;;
         --repo)
@@ -94,6 +105,7 @@ while [[ $# -gt 0 ]]; do
             ;;
         --print-local)
             RUN_ARGS+=("$1")
+            PRINT_LOCAL=1
             shift
             ;;
         --pull)
@@ -121,11 +133,6 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -z "${VEHICLE}" ]]; then
-    echo "--vehicle is required." >&2
-    exit 2
-fi
-
 if [[ -z "${ACTION}" ]]; then
     ACTION="restart"
 fi
@@ -135,6 +142,10 @@ if [[ "${ACTION}" == "start" || "${ACTION}" == "restart" ]]; then
         echo "--host is required for ${ACTION}." >&2
         exit 2
     fi
+fi
+
+if [[ "${PRINT_LOCAL}" == "1" && ( "${ACTION}" == "start" || "${ACTION}" == "restart" ) ]]; then
+    echo "Warning: --print-local writes every UDP packet to ${LOGFILE} during background deploys." >&2
 fi
 
 REMOTE_RUN_ARGS=("${HOST}" "${PORT}" "${RUN_ARGS[@]}")
@@ -147,7 +158,15 @@ RUN_CMD_Q=$(printf "%q" "${RUN_CMD}")
 ACTION_Q=$(printf "%q" "${ACTION}")
 PULL_Q=$(printf "%q" "${PULL}")
 
-ssh "${VEHICLE}" \
+SSH_OPTS=(-o StrictHostKeyChecking=no)
+SSH_CMD=(ssh "${SSH_OPTS[@]}")
+if [[ -n "${PASSWORD}" ]] && command -v sshpass >/dev/null 2>&1; then
+    SSH_CMD=(sshpass -p "${PASSWORD}" ssh "${SSH_OPTS[@]}")
+elif [[ -n "${PASSWORD}" ]]; then
+    echo "Warning: sshpass is not installed; falling back to plain ssh." >&2
+fi
+
+"${SSH_CMD[@]}" "${VEHICLE}" \
     "REPO=${REPO_Q} SESSION=${SESSION_Q} PIDFILE=${PIDFILE_Q} LOGFILE=${LOGFILE_Q} RUN_CMD=${RUN_CMD_Q} ACTION=${ACTION_Q} PULL=${PULL_Q} bash -s" <<'REMOTE'
 set -euo pipefail
 

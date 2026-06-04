@@ -26,7 +26,12 @@ if [[ $# -gt 0 ]]; then
     shift
 fi
 
-docker run --rm -it \
+DOCKER_TTY_ARGS=()
+if [[ -t 0 && -t 1 ]]; then
+    DOCKER_TTY_ARGS=(-it)
+fi
+
+docker run --rm "${DOCKER_TTY_ARGS[@]}" \
     -v "$(pwd)":/workspaces \
     --net=host \
     --privileged \
